@@ -157,7 +157,7 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
         if (tile_buffer == nullptr) {
           continue;
         }
-        instance_data.float_buffers.mark_used(tile_buffer);
+        IMAGE_buffer_cache_mark_used(tile_buffer);
         BKE_image_release_ibuf(image, tile_buffer, lock);
 
         DRWShadingGroup *shsub = DRW_shgroup_create_sub(shgrp);
@@ -185,14 +185,12 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
     switch (changes.get_result_code()) {
       case ePartialUpdateCollectResult::FullUpdateNeeded:
         instance_data.mark_all_texture_slots_dirty();
-        instance_data.float_buffers.clear();
         break;
       case ePartialUpdateCollectResult::NoChangesDetected:
         break;
       case ePartialUpdateCollectResult::PartialChangesDetected:
         /* Partial update when wrap repeat is enabled is not supported. */
         if (instance_data.flags.do_tile_drawing) {
-          instance_data.float_buffers.clear();
           instance_data.mark_all_texture_slots_dirty();
         }
         else {
@@ -408,7 +406,7 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
    */
   ImBuf *ensure_float_buffer(IMAGE_InstanceData &instance_data, ImBuf *image_buffer) const
   {
-    return instance_data.float_buffers.ensure_float_buffer(image_buffer);
+      return IMAGE_buffer_cache_float_get( image_buffer);
   }
 
   void do_full_update_texture_slot(IMAGE_InstanceData &instance_data,
@@ -474,7 +472,6 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
 
     instance_data->partial_update.ensure_image(image);
     instance_data->clear_dirty_flag();
-    instance_data->float_buffers.reset_usage_flags();
 
     /* Step: Find out which screen space textures are needed to draw on the screen. Remove the
      * screen space textures that aren't needed. */
@@ -499,8 +496,7 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
 
   void draw_finish(IMAGE_Data *vedata) const override
   {
-    IMAGE_InstanceData *instance_data = vedata->instance_data;
-    instance_data->float_buffers.remove_unused_buffers();
+      IMAGE_buffer_cache_free_unused();
   }
 
   void draw_scene(IMAGE_Data *vedata) const override
