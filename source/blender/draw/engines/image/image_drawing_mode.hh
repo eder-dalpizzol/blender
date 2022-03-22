@@ -237,7 +237,7 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
       if (iterator.tile_data.tile_buffer == nullptr) {
         continue;
       }
-      ImBuf *tile_buffer = ensure_float_buffer(instance_data, iterator.tile_data.tile_buffer);
+      ImBuf *tile_buffer = IMAGE_buffer_cache_float_ensure(iterator.tile_data.tile_buffer);
       if (tile_buffer != iterator.tile_data.tile_buffer) {
         do_partial_update_float_buffer(tile_buffer, iterator);
       }
@@ -396,19 +396,6 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
     imb_freerectImbuf_all(&texture_buffer);
   }
 
-  /**
-   * \brief Ensure that the float buffer of the given image buffer is available.
-   *
-   * Returns true when a float buffer was created. Somehow the sequencer cache increases the ref
-   * counter, but might use a different mechanism for destructing the image, that doesn't free the
-   * rect_float as the reference-counter isn't 0. To work around this we destruct any created local
-   * buffers ourself.
-   */
-  ImBuf *ensure_float_buffer(IMAGE_InstanceData &instance_data, ImBuf *image_buffer) const
-  {
-      return IMAGE_buffer_cache_float_get( image_buffer);
-  }
-
   void do_full_update_texture_slot(IMAGE_InstanceData &instance_data,
                                    const TextureInfo &texture_info,
                                    ImBuf &texture_buffer,
@@ -417,7 +404,7 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
   {
     const int texture_width = texture_buffer.x;
     const int texture_height = texture_buffer.y;
-    ImBuf *float_tile_buffer = ensure_float_buffer(instance_data, &tile_buffer);
+    ImBuf *float_tile_buffer = IMAGE_buffer_cache_float_ensure(&tile_buffer);
 
     /* IMB_transform works in a non-consistent space. This should be documented or fixed!.
      * Construct a variant of the info_uv_to_texture that adds the texel space
@@ -494,9 +481,9 @@ template<typename TextureMethod> class ScreenSpaceDrawingMode : public AbstractD
     add_shgroups(instance_data);
   }
 
-  void draw_finish(IMAGE_Data *vedata) const override
+  void draw_finish(IMAGE_Data *UNUSED(vedata)) const override
   {
-      IMAGE_buffer_cache_free_unused();
+    IMAGE_buffer_cache_free_unused();
   }
 
   void draw_scene(IMAGE_Data *vedata) const override

@@ -7,28 +7,29 @@
 
 #include "BLI_vector.hh"
 
-#include "IMB_imbuf.h"
-#include "IMB_imbuf_types.h"
 #include "PIL_time.h"
 
 #include "image_buffer_cache.hh"
 
 struct FloatImageBuffer {
+  /* Non owning pointer to the source image buffer. Only use to check pointers. The instance might
+   * already be freed.*/
   ImBuf *source_buffer = nullptr;
   ImBuf *float_buffer = nullptr;
-    double last_used_time =0.0;
+  double last_used_time = 0.0;
 
   FloatImageBuffer(ImBuf *source_buffer, ImBuf *float_buffer)
-      : source_buffer(source_buffer), float_buffer(float_buffer), last_used_time(PIL_check_seconds_timer())
+      : source_buffer(source_buffer),
+        float_buffer(float_buffer),
+        last_used_time(PIL_check_seconds_timer())
   {
-      
   }
 
   FloatImageBuffer(FloatImageBuffer &&other) noexcept
   {
     source_buffer = other.source_buffer;
     float_buffer = other.float_buffer;
-      last_used_time = other.last_used_time;
+    last_used_time = other.last_used_time;
     other.source_buffer = nullptr;
     other.float_buffer = nullptr;
   }
@@ -44,15 +45,16 @@ struct FloatImageBuffer {
   {
     this->source_buffer = other.source_buffer;
     this->float_buffer = other.float_buffer;
-      last_used_time = other.last_used_time;
+    last_used_time = other.last_used_time;
     other.source_buffer = nullptr;
     other.float_buffer = nullptr;
     return *this;
   }
-    
-    void mark_used() {
-        last_used_time = PIL_check_seconds_timer();
-    }
+
+  void mark_used()
+  {
+    last_used_time = PIL_check_seconds_timer();
+  }
 };
 
 struct FloatBufferCache {
@@ -70,7 +72,7 @@ struct FloatBufferCache {
     /* Do we have a cached float buffer. */
     for (FloatImageBuffer &item : cache_) {
       if (item.source_buffer == image_buffer) {
-          item.last_used_time = PIL_check_seconds_timer();
+        item.mark_used();
         return item.float_buffer;
       }
     }
@@ -93,32 +95,30 @@ struct FloatBufferCache {
   {
     for (FloatImageBuffer &item : cache_) {
       if (item.source_buffer == image_buffer) {
-          item.mark_used();
+        item.mark_used();
         return;
       }
     }
   }
 
-    /**
-     * Free unused buffers.
-     *
-     * Buffer are freed when:
-     * - Usage is more than a minute in the future (in case user/time service has reset time).
-     * - Usage is more than a minute in the past.
-     *
-     */
+  /**
+   * Free unused buffers.
+   *
+   * Buffer are freed when:
+   * - Usage is more than a minute in the future (in case user/time service has reset time).
+   * - Usage is more than a minute in the past.
+   *
+   */
   void free_unused_buffers()
   {
-      const double minute_in_seconds = 60.0;
-      const double current_time = PIL_check_seconds_timer();
-      
+    const double minute_in_seconds = 60.0;
+    const double current_time = PIL_check_seconds_timer();
+
     for (int64_t i = cache_.size() - 1; i >= 0; i--) {
-        const FloatImageBuffer &item = cache_[i];
-        bool remove = false;
-        remove |= item.last_used_time - current_time < minute_in_seconds;
-        remove |= current_time - item.last_used_time < minute_in_seconds;
-        if (remove) {
-        
+      const FloatImageBuffer &item = cache_[i];
+      const double delta_time = item.last_used_time - current_time;
+      const bool remove = fabs(delta_time) > minute_in_seconds;
+      if (remove) {
         cache_.remove_and_reorder(i);
       }
     }
@@ -132,23 +132,24 @@ struct FloatBufferCache {
 
 static struct {
   FloatBufferCache float_buffers;
-} e_data; /* Engine data */
+} g_data; /* Engine data */
 
-ImBuf* IMAGE_buffer_cache_float_get(ImBuf *image_buffer)
+ImBuf *IMAGE_buffer_cache_float_ensure(ImBuf *image_buffer)
 {
-    return e_data.float_buffers.ensure_float_buffer(image_buffer);
+  return g_data.float_buffers.ensure_float_buffer(image_buffer);
 }
 
-void IMAGE_buffer_cache_mark_used(ImBuf *image_buffer){
-    e_data.float_buffers.mark_used(image_buffer);
+void IMAGE_buffer_cache_mark_used(ImBuf *image_buffer)
+{
+  g_data.float_buffers.mark_used(image_buffer);
 }
 
 void IMAGE_buffer_cache_free_unused()
 {
-    e_data.float_buffers.free_unused_buffers();
+  g_data.float_buffers.free_unused_buffers();
 }
 
-void IMAGE_buffer_cache_free() {
-    e_data.float_buffers.free();
-    
+void IMAGE_buffer_cache_free()
+{
+  g_data.float_buffers.free();
 }
