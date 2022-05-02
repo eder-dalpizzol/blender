@@ -5276,6 +5276,7 @@ static bool sculpt_stroke_test_start(bContext *C, struct wmOperator *op, const f
     SculptSession *ss = ob->sculpt;
     Sculpt *sd = CTX_data_tool_settings(C)->sculpt;
     Brush *brush = BKE_paint_brush(&sd->paint);
+    ToolSettings *tool_settings = CTX_data_tool_settings(C);
 
     /* NOTE: This should be removed when paint mode is available. Paint mode can force based on the
      * canvas it is painting on. (ref. use_sculpt_texture_paint). */
@@ -5293,7 +5294,14 @@ static bool sculpt_stroke_test_start(bContext *C, struct wmOperator *op, const f
     SculptCursorGeometryInfo sgi;
     SCULPT_cursor_geometry_info_update(C, &sgi, mouse, false);
 
-    SCULPT_undo_push_begin(ob, sculpt_tool_name(sd));
+    /* This is incorrect as this crashes other areas. We should integrate the image undo into the
+     * sculpt undo. (sub system?). */
+    if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
+      ED_image_undo_push_begin(op->type->name, PAINT_MODE_TEXTURE_3D);
+    }
+    else {
+      SCULPT_undo_push_begin(ob, sculpt_tool_name(sd));
+    }
 
     return true;
   }
@@ -5420,22 +5428,28 @@ static void sculpt_stroke_done(const bContext *C, struct PaintStroke *UNUSED(str
   SCULPT_cache_free(ss->cache);
   ss->cache = NULL;
 
-  SCULPT_undo_push_end(ob);
-
-  if (brush->sculpt_tool == SCULPT_TOOL_MASK) {
-    SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_MASK);
-  }
-  else if (brush->sculpt_tool == SCULPT_TOOL_PAINT) {
-    if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
-      SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_IMAGE);
-    }
+  if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
+    ED_image_undo_push_end();
   }
   else {
-    SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_COORDS);
+    SCULPT_undo_push_end(ob);
   }
+}
 
-  WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, ob);
-  sculpt_brush_exit_tex(sd);
+if (brush->sculpt_tool == SCULPT_TOOL_MASK) {
+  SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_MASK);
+}
+else if (brush->sculpt_tool == SCULPT_TOOL_PAINT) {
+  if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
+    SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_IMAGE);
+  }
+}
+else {
+  SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_COORDS);
+}
+
+WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, ob);
+sculpt_brush_exit_tex(sd);
 }
 
 static int sculpt_brush_stroke_invoke(bContext *C, wmOperator *op, const wmEvent *event)
