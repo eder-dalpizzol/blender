@@ -393,8 +393,6 @@ static void push_undo(const NodeData &node_data,
                       &tiley,
                       &tilew,
                       &tileh);
-    /* For performance reasons we could move this to the caller now it reallocates it per node
-     * per tile. */
     for (int ty = tiley; ty <= tileh; ty++) {
       for (int tx = tilex; tx <= tilew; tx++) {
         ED_image_paint_tile_push(undo_tiles,
