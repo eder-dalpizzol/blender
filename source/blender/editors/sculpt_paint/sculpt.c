@@ -3248,8 +3248,8 @@ static void do_brush_action(Sculpt *sd,
     }
     nodes = sculpt_pbvh_gather_generic(ob, sd, brush, use_original, radius_scale, &totnode);
   }
-
-  if (sculpt_needs_pbvh_pixels(paint_mode_settings, brush, ob)) {
+  const bool use_pixels = sculpt_needs_pbvh_pixels(paint_mode_settings, brush, ob);
+  if (use_pixels) {
     sculpt_pbvh_update_pixels(paint_mode_settings, ss, ob);
   }
 
@@ -3302,16 +3302,18 @@ static void do_brush_action(Sculpt *sd,
   }
   float location[3];
 
-  SculptThreadedTaskData task_data = {
-      .sd = sd,
-      .ob = ob,
-      .brush = brush,
-      .nodes = nodes,
-  };
+  if (!use_pixels) {
+    SculptThreadedTaskData task_data = {
+        .sd = sd,
+        .ob = ob,
+        .brush = brush,
+        .nodes = nodes,
+    };
 
-  TaskParallelSettings settings;
-  BKE_pbvh_parallel_range_settings(&settings, true, totnode);
-  BLI_task_parallel_range(0, totnode, &task_data, do_brush_action_task_cb, &settings);
+    TaskParallelSettings settings;
+    BKE_pbvh_parallel_range_settings(&settings, true, totnode);
+    BLI_task_parallel_range(0, totnode, &task_data, do_brush_action_task_cb, &settings);
+  }
 
   if (sculpt_brush_needs_normal(ss, brush)) {
     update_sculpt_normal(sd, ob, nodes, totnode);
@@ -5297,7 +5299,7 @@ static bool sculpt_stroke_test_start(bContext *C, struct wmOperator *op, const f
     /* This is incorrect as this crashes other areas. We should integrate the image undo into the
      * sculpt undo. (sub system?). */
     if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
-      ED_image_undo_push_begin(op->type->name, PAINT_MODE_TEXTURE_3D);
+      ED_image_undo_push_begin(op->type->name, PAINT_MODE_SCULPT);
     }
     else {
       SCULPT_undo_push_begin(ob, sculpt_tool_name(sd));
