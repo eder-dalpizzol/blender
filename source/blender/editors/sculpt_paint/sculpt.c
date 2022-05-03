@@ -5297,7 +5297,7 @@ static bool sculpt_stroke_test_start(bContext *C, struct wmOperator *op, const f
     SCULPT_cursor_geometry_info_update(C, &sgi, mouse, false);
 
     /* Setup the correct undo system. Image painting and sculpting are mutual exclusive.
-     * Color attributes are part of the sculpting undy system. */
+     * Color attributes are part of the sculpting undo system. */
     if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
       ED_image_undo_push_begin(op->type->name, PAINT_MODE_SCULPT);
     }
