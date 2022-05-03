@@ -5434,22 +5434,21 @@ static void sculpt_stroke_done(const bContext *C, struct PaintStroke *UNUSED(str
   else {
     SCULPT_undo_push_end(ob);
   }
-}
 
-if (brush->sculpt_tool == SCULPT_TOOL_MASK) {
-  SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_MASK);
-}
-else if (brush->sculpt_tool == SCULPT_TOOL_PAINT) {
-  if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
-    SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_IMAGE);
+  if (brush->sculpt_tool == SCULPT_TOOL_MASK) {
+    SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_MASK);
   }
-}
-else {
-  SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_COORDS);
-}
+  else if (brush->sculpt_tool == SCULPT_TOOL_PAINT) {
+    if (SCULPT_use_image_paint_brush(&tool_settings->paint_mode, ob)) {
+      SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_IMAGE);
+    }
+  }
+  else {
+    SCULPT_flush_update_done(C, ob, SCULPT_UPDATE_COORDS);
+  }
 
-WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, ob);
-sculpt_brush_exit_tex(sd);
+  WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, ob);
+  sculpt_brush_exit_tex(sd);
 }
 
 static int sculpt_brush_stroke_invoke(bContext *C, wmOperator *op, const wmEvent *event)
