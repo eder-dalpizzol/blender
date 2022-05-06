@@ -46,6 +46,8 @@
 
 #include "DEG_depsgraph.h"
 
+#include "GEO_uv_parametrizer.h"
+
 #include "PIL_time.h"
 
 #include "UI_interface.h"
@@ -64,7 +66,6 @@
 #include "WM_types.h"
 
 #include "uvedit_intern.h"
-#include "uvedit_parametrizer.h"
 
 /* -------------------------------------------------------------------- */
 /** \name Utility Functions
@@ -319,7 +320,7 @@ static void construct_param_handle_face_add(ParamHandle *handle,
     select[i] = uvedit_uv_select_test(scene, l, cd_loop_uv_offset);
   }
 
-  param_face_add(handle, key, i, vkeys, co, uv, pin, select);
+  GEO_uv_parametrizer_face_add(handle, key, i, vkeys, co, uv, pin, select);
 }
 
 /* See: construct_param_handle_multi to handle multiple objects at once. */
@@ -338,7 +339,7 @@ static ParamHandle *construct_param_handle(const Scene *scene,
 
   const int cd_loop_uv_offset = CustomData_get_offset(&bm->ldata, CD_MLOOPUV);
 
-  handle = param_construct_begin();
+  handle = GEO_uv_parametrizer_construct_begin();
 
   if (options->correct_aspect) {
     float aspx, aspy;
@@ -346,7 +347,7 @@ static ParamHandle *construct_param_handle(const Scene *scene,
     ED_uvedit_get_aspect(ob, &aspx, &aspy);
 
     if (aspx != aspy) {
-      param_aspect_ratio(handle, aspx, aspy);
+      GEO_uv_parametrizer_aspect_ratio(handle, aspx, aspy);
     }
   }
 
@@ -385,15 +386,15 @@ static ParamHandle *construct_param_handle(const Scene *scene,
         ParamKey vkeys[2];
         vkeys[0] = (ParamKey)BM_elem_index_get(eed->v1);
         vkeys[1] = (ParamKey)BM_elem_index_get(eed->v2);
-        param_edge_set_seam(handle, vkeys);
+        GEO_uv_parametrizer_edge_set_seam(handle, vkeys);
       }
     }
   }
 
-  param_construct_end(handle,
-                      options->fill_holes,
-                      options->topology_from_uvs,
-                      result_info ? &result_info->count_failed : NULL);
+  GEO_uv_parametrizer_construct_end(handle,
+                                    options->fill_holes,
+                                    options->topology_from_uvs,
+                                    result_info ? &result_info->count_failed : NULL);
 
   return handle;
 }
@@ -414,7 +415,7 @@ static ParamHandle *construct_param_handle_multi(const Scene *scene,
   BMIter iter, liter;
   int i;
 
-  handle = param_construct_begin();
+  handle = GEO_uv_parametrizer_construct_begin();
 
   if (options->correct_aspect) {
     Object *ob = objects[0];
@@ -422,7 +423,7 @@ static ParamHandle *construct_param_handle_multi(const Scene *scene,
 
     ED_uvedit_get_aspect(ob, &aspx, &aspy);
     if (aspx != aspy) {
-      param_aspect_ratio(handle, aspx, aspy);
+      GEO_uv_parametrizer_aspect_ratio(handle, aspx, aspy);
     }
   }
 
@@ -474,14 +475,15 @@ static ParamHandle *construct_param_handle_multi(const Scene *scene,
           ParamKey vkeys[2];
           vkeys[0] = (ParamKey)BM_elem_index_get(eed->v1);
           vkeys[1] = (ParamKey)BM_elem_index_get(eed->v2);
-          param_edge_set_seam(handle, vkeys);
+          GEO_uv_parametrizer_edge_set_seam(handle, vkeys);
         }
       }
     }
     offset += bm->totface;
   }
 
-  param_construct_end(handle, options->fill_holes, options->topology_from_uvs, count_fail);
+  GEO_uv_parametrizer_construct_end(
+      handle, options->fill_holes, options->topology_from_uvs, count_fail);
 
   return handle;
 }
@@ -560,7 +562,7 @@ static ParamHandle *construct_param_handle_subsurfed(const Scene *scene,
 
   const int cd_loop_uv_offset = CustomData_get_offset(&em->bm->ldata, CD_MLOOPUV);
 
-  handle = param_construct_begin();
+  handle = GEO_uv_parametrizer_construct_begin();
 
   if (options->correct_aspect) {
     float aspx, aspy;
@@ -568,7 +570,7 @@ static ParamHandle *construct_param_handle_subsurfed(const Scene *scene,
     ED_uvedit_get_aspect(ob, &aspx, &aspy);
 
     if (aspx != aspy) {
-      param_aspect_ratio(handle, aspx, aspy);
+      GEO_uv_parametrizer_aspect_ratio(handle, aspx, aspy);
     }
   }
 
@@ -689,7 +691,7 @@ static ParamHandle *construct_param_handle_subsurfed(const Scene *scene,
                                 &pin[3],
                                 &select[3]);
 
-    param_face_add(handle, key, 4, vkeys, co, uv, pin, select);
+    GEO_uv_parametrizer_face_add(handle, key, 4, vkeys, co, uv, pin, select);
   }
 
   /* these are calculated from original mesh too */
@@ -698,14 +700,14 @@ static ParamHandle *construct_param_handle_subsurfed(const Scene *scene,
       ParamKey vkeys[2];
       vkeys[0] = (ParamKey)edge->v1;
       vkeys[1] = (ParamKey)edge->v2;
-      param_edge_set_seam(handle, vkeys);
+      GEO_uv_parametrizer_edge_set_seam(handle, vkeys);
     }
   }
 
-  param_construct_end(handle,
-                      options->fill_holes,
-                      options->topology_from_uvs,
-                      result_info ? &result_info->count_failed : NULL);
+  GEO_uv_parametrizer_construct_end(handle,
+                                    options->fill_holes,
+                                    options->topology_from_uvs,
+                                    result_info ? &result_info->count_failed : NULL);
 
   /* cleanup */
   MEM_freeN(faceMap);
@@ -764,9 +766,9 @@ static bool minimize_stretch_init(bContext *C, wmOperator *op)
   ms->handle = construct_param_handle_multi(scene, objects, objects_len, &options, NULL);
   ms->lasttime = PIL_check_seconds_timer();
 
-  param_stretch_begin(ms->handle);
+  GEO_uv_parametrizer_stretch_begin(ms->handle);
   if (ms->blend != 0.0f) {
-    param_stretch_blend(ms->handle, ms->blend);
+    GEO_uv_parametrizer_stretch_blend(ms->handle, ms->blend);
   }
 
   op->customdata = ms;
@@ -782,8 +784,8 @@ static void minimize_stretch_iteration(bContext *C, wmOperator *op, bool interac
   ToolSettings *ts = scene->toolsettings;
   const bool synced_selection = (ts->uv_flag & UV_SYNC_SELECTION) != 0;
 
-  param_stretch_blend(ms->handle, ms->blend);
-  param_stretch_iter(ms->handle);
+  GEO_uv_parametrizer_stretch_blend(ms->handle, ms->blend);
+  GEO_uv_parametrizer_stretch_iter(ms->handle);
 
   ms->i++;
   RNA_int_set(op->ptr, "iterations", ms->i);
@@ -791,7 +793,7 @@ static void minimize_stretch_iteration(bContext *C, wmOperator *op, bool interac
   if (interactive && (PIL_check_seconds_timer() - ms->lasttime > 0.5)) {
     char str[UI_MAX_DRAW_STR];
 
-    param_flush(ms->handle);
+    GEO_uv_parametrizer_flush(ms->handle);
 
     if (area) {
       BLI_snprintf(str, sizeof(str), TIP_("Minimize Stretch. Blend %.2f"), ms->blend);
@@ -831,14 +833,14 @@ static void minimize_stretch_exit(bContext *C, wmOperator *op, bool cancel)
   }
 
   if (cancel) {
-    param_flush_restore(ms->handle);
+    GEO_uv_parametrizer_flush_restore(ms->handle);
   }
   else {
-    param_flush(ms->handle);
+    GEO_uv_parametrizer_flush(ms->handle);
   }
 
-  param_stretch_end(ms->handle);
-  param_delete(ms->handle);
+  GEO_uv_parametrizer_stretch_end(ms->handle);
+  GEO_uv_parametrizer_delete(ms->handle);
 
   for (uint ob_index = 0; ob_index < ms->objects_len; ob_index++) {
     Object *obedit = ms->objects_edit[ob_index];
@@ -1014,9 +1016,9 @@ static void uvedit_pack_islands(const Scene *scene, Object *ob, BMesh *bm)
 
   ParamHandle *handle;
   handle = construct_param_handle(scene, ob, bm, &options, NULL);
-  param_pack(handle, scene->toolsettings->uvcalc_margin, rotate, ignore_pinned);
-  param_flush(handle);
-  param_delete(handle);
+  GEO_uv_parametrizer_pack(handle, scene->toolsettings->uvcalc_margin, rotate, ignore_pinned);
+  GEO_uv_parametrizer_flush(handle);
+  GEO_uv_parametrizer_delete(handle);
 }
 
 /**
@@ -1034,9 +1036,9 @@ static void uvedit_pack_islands_multi(const Scene *scene,
 {
   ParamHandle *handle;
   handle = construct_param_handle_multi(scene, objects, objects_len, options, NULL);
-  param_pack(handle, scene->toolsettings->uvcalc_margin, rotate, ignore_pinned);
-  param_flush(handle);
-  param_delete(handle);
+  GEO_uv_parametrizer_pack(handle, scene->toolsettings->uvcalc_margin, rotate, ignore_pinned);
+  GEO_uv_parametrizer_flush(handle);
+  GEO_uv_parametrizer_delete(handle);
 
   for (uint ob_index = 0; ob_index < objects_len; ob_index++) {
     Object *obedit = objects[ob_index];
@@ -1167,9 +1169,9 @@ static int average_islands_scale_exec(bContext *C, wmOperator *UNUSED(op))
   }
 
   ParamHandle *handle = construct_param_handle_multi(scene, objects, objects_len, &options, NULL);
-  param_average(handle, false);
-  param_flush(handle);
-  param_delete(handle);
+  GEO_uv_parametrizer_average(handle, false);
+  GEO_uv_parametrizer_flush(handle);
+  GEO_uv_parametrizer_delete(handle);
 
   for (uint ob_index = 0; ob_index < objects_len; ob_index++) {
     Object *obedit = objects[ob_index];
@@ -1239,7 +1241,7 @@ void ED_uvedit_live_unwrap_begin(Scene *scene, Object *obedit)
     handle = construct_param_handle(scene, obedit, em->bm, &options, NULL);
   }
 
-  param_lscm_begin(handle, PARAM_TRUE, abf);
+  GEO_uv_parametrizer_lscm_begin(handle, PARAM_TRUE, abf);
 
   /* Create or increase size of g_live_unwrap.handles array */
   if (g_live_unwrap.handles == NULL) {
@@ -1261,8 +1263,8 @@ void ED_uvedit_live_unwrap_re_solve(void)
 {
   if (g_live_unwrap.handles) {
     for (int i = 0; i < g_live_unwrap.len; i++) {
-      param_lscm_solve(g_live_unwrap.handles[i], NULL, NULL);
-      param_flush(g_live_unwrap.handles[i]);
+      GEO_uv_parametrizer_lscm_solve(g_live_unwrap.handles[i], NULL, NULL);
+      GEO_uv_parametrizer_flush(g_live_unwrap.handles[i]);
     }
   }
 }
@@ -1271,11 +1273,11 @@ void ED_uvedit_live_unwrap_end(short cancel)
 {
   if (g_live_unwrap.handles) {
     for (int i = 0; i < g_live_unwrap.len; i++) {
-      param_lscm_end(g_live_unwrap.handles[i]);
+      GEO_uv_parametrizer_lscm_end(g_live_unwrap.handles[i]);
       if (cancel) {
-        param_flush_restore(g_live_unwrap.handles[i]);
+        GEO_uv_parametrizer_flush_restore(g_live_unwrap.handles[i]);
       }
-      param_delete(g_live_unwrap.handles[i]);
+      GEO_uv_parametrizer_delete(g_live_unwrap.handles[i]);
     }
     MEM_freeN(g_live_unwrap.handles);
     g_live_unwrap.handles = NULL;
@@ -1731,17 +1733,17 @@ static void uvedit_unwrap(const Scene *scene,
     handle = construct_param_handle(scene, obedit, em->bm, options, result_info);
   }
 
-  param_lscm_begin(handle, PARAM_FALSE, scene->toolsettings->unwrapper == 0);
-  param_lscm_solve(handle,
-                   result_info ? &result_info->count_changed : NULL,
-                   result_info ? &result_info->count_failed : NULL);
-  param_lscm_end(handle);
+  GEO_uv_parametrizer_lscm_begin(handle, PARAM_FALSE, scene->toolsettings->unwrapper == 0);
+  GEO_uv_parametrizer_lscm_solve(handle,
+                                 result_info ? &result_info->count_changed : NULL,
+                                 result_info ? &result_info->count_failed : NULL);
+  GEO_uv_parametrizer_lscm_end(handle);
 
-  param_average(handle, true);
+  GEO_uv_parametrizer_average(handle, true);
 
-  param_flush(handle);
+  GEO_uv_parametrizer_flush(handle);
 
-  param_delete(handle);
+  GEO_uv_parametrizer_delete(handle);
 }
 
 static void uvedit_unwrap_multi(const Scene *scene,
@@ -2839,6 +2841,10 @@ static void uvedit_unwrap_cube_project(BMesh *bm,
     zero_v3(loc);
   }
 
+  if (UNLIKELY(cube_size == 0.0f)) {
+    cube_size = 1.0f;
+  }
+
   /* choose x,y,z axis for projection depending on the largest normal
    * component, but clusters all together around the center of map. */
 
@@ -2851,8 +2857,8 @@ static void uvedit_unwrap_cube_project(BMesh *bm,
 
     BM_ITER_ELEM (l, &liter, efa, BM_LOOPS_OF_FACE) {
       luv = BM_ELEM_CD_GET_VOID_P(l, cd_loop_uv_offset);
-      luv->uv[0] = 0.5f + 0.5f * cube_size * (l->v->co[cox] - loc[cox]);
-      luv->uv[1] = 0.5f + 0.5f * cube_size * (l->v->co[coy] - loc[coy]);
+      luv->uv[0] = 0.5f + ((l->v->co[cox] - loc[cox]) / cube_size);
+      luv->uv[1] = 0.5f + ((l->v->co[coy] - loc[coy]) / cube_size);
     }
   }
 }
@@ -2898,7 +2904,6 @@ static int cube_project_exec(bContext *C, wmOperator *op)
       float dims[3];
       sub_v3_v3v3(dims, bounds[1], bounds[0]);
       cube_size = max_fff(UNPACK3(dims));
-      cube_size = cube_size ? 2.0f / cube_size : 1.0f;
       if (ob_index == 0) {
         /* This doesn't fit well with, multiple objects. */
         RNA_property_float_set(op->ptr, prop_cube_size, cube_size);
@@ -2969,10 +2974,12 @@ void ED_uvedit_add_simple_uvs(Main *bmain, const Scene *scene, Object *ob)
                      me,
                      (&(struct BMeshFromMeshParams){
                          .calc_face_normal = true,
+                         .calc_vert_normal = true,
                      }));
   /* select all uv loops first - pack parameters needs this to make sure charts are registered */
   ED_uvedit_select_all(bm);
-  uvedit_unwrap_cube_project(bm, 1.0, false, NULL);
+  /* A cube size of 2.0 maps [-1..1] vertex coords to [0.0..1.0] in UV coords. */
+  uvedit_unwrap_cube_project(bm, 2.0, false, NULL);
   /* Set the margin really quickly before the packing operation. */
   scene->toolsettings->uvcalc_margin = 0.001f;
   uvedit_pack_islands(scene, ob, bm);

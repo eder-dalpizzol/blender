@@ -31,6 +31,7 @@
 #include "BKE_gpencil.h"
 #include "BKE_gpencil_modifier.h"
 #include "BKE_layer.h"
+#include "BKE_lib_id.h"
 #include "BKE_main.h"
 #include "BKE_modifier.h"
 #include "BKE_object.h"
@@ -116,8 +117,8 @@ static void do_outliner_item_posemode_toggle(bContext *C, Scene *scene, Base *ba
   Main *bmain = CTX_data_main(C);
   Object *ob = base->object;
 
-  if (ID_IS_LINKED(ob)) {
-    BKE_report(CTX_wm_reports(C), RPT_WARNING, "Cannot pose libdata");
+  if (!BKE_id_is_editable(CTX_data_main(C), &ob->id)) {
+    BKE_report(CTX_wm_reports(C), RPT_WARNING, "Cannot pose non-editable data");
     return;
   }
 
@@ -1551,7 +1552,7 @@ static bool outliner_is_co_within_restrict_columns(const SpaceOutliner *space_ou
                                                    const ARegion *region,
                                                    float view_co_x)
 {
-  return (view_co_x > region->v2d.cur.xmax - outliner_restrict_columns_width(space_outliner));
+  return (view_co_x > region->v2d.cur.xmax - outliner_right_columns_width(space_outliner));
 }
 
 bool outliner_is_co_within_mode_column(SpaceOutliner *space_outliner, const float view_mval[2])

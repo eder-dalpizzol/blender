@@ -170,12 +170,8 @@ static void action_main_region_draw(const bContext *C, ARegion *region)
   bAnimContext ac;
   View2D *v2d = &region->v2d;
   short marker_flag = 0;
-  short cfra_flag = 0;
 
   UI_view2d_view_ortho(v2d);
-  if (saction->flag & SACTION_DRAWTIME) {
-    cfra_flag |= DRAWCFRA_UNIT_SECONDS;
-  }
 
   /* clear and setup matrix */
   UI_ThemeClearColor(TH_BACK);
@@ -228,6 +224,9 @@ static void action_main_region_draw(const bContext *C, ARegion *region)
 
   /* reset view matrix */
   UI_view2d_view_restore(C);
+
+  /* gizmos */
+  WM_gizmomap_draw(region->gizmo_map, C, WM_GIZMOMAP_DRAWSTEP_2D);
 
   /* scrubbing region */
   ED_time_scrub_draw(region, scene, saction->flag & SACTION_DRAWTIME, true);
@@ -865,7 +864,7 @@ void ED_spacetype_action(void)
   art->draw_overlay = action_main_region_draw_overlay;
   art->listener = action_main_region_listener;
   art->message_subscribe = saction_main_region_message_subscribe;
-  art->keymapflag = ED_KEYMAP_VIEW2D | ED_KEYMAP_ANIMATION | ED_KEYMAP_FRAMES;
+  art->keymapflag = ED_KEYMAP_GIZMO | ED_KEYMAP_VIEW2D | ED_KEYMAP_ANIMATION | ED_KEYMAP_FRAMES;
 
   BLI_addhead(&st->regiontypes, art);
 

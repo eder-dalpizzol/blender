@@ -26,6 +26,7 @@ extern "C" {
 
 struct ID;
 struct IDRemapper;
+struct LinkNode;
 
 /* BKE_libblock_free, delete are declared in BKE_lib_id.h for convenience. */
 
@@ -56,7 +57,9 @@ enum {
   ID_REMAP_FORCE_NEVER_NULL_USAGE = 1 << 3,
   /** Do not remap library override pointers. */
   ID_REMAP_SKIP_OVERRIDE_LIBRARY = 1 << 5,
-  /** Don't touch the user count (use for low level actions such as swapping pointers). */
+  /** Don't touch the special user counts (use when the 'old' remapped ID remains in use):
+   * - Do not transfer 'fake user' status from old to new ID.
+   * - Do not clear 'extra user' from old ID. */
   ID_REMAP_SKIP_USER_CLEAR = 1 << 6,
   /**
    * Force internal ID runtime pointers (like `ID.newid`, `ID.orig_id` etc.) to also be processed.
@@ -133,6 +136,15 @@ void BKE_libblock_relink_ex(struct Main *bmain,
                             void *old_idv,
                             void *new_idv,
                             short remap_flags) ATTR_NONNULL(1, 2);
+/**
+ * Same as #BKE_libblock_relink_ex, but applies all rules defined in \a id_remapper to \a ids (or
+ * does cleanup if `ID_REMAP_TYPE_CLEANUP` is specified as \a remap_type).
+ */
+void BKE_libblock_relink_multiple(struct Main *bmain,
+                                  struct LinkNode *ids,
+                                  const eIDRemapType remap_type,
+                                  struct IDRemapper *id_remapper,
+                                  const short remap_flags);
 
 /**
  * Remaps ID usages of given ID to their `id->newid` pointer if not None, and proceeds recursively
@@ -172,11 +184,18 @@ typedef enum IDRemapperApplyOptions {
    *
    * For remapping the old ID users will be decremented and the new ID users will be
    * incremented. When un-assigning the old ID users will be decremented.
+   *
+   * NOTE: Currently unused by main remapping code, since usercount is handled by
+   * `foreach_libblock_remap_callback_apply` there, depending on whether the remapped pointer does
+   * use it or not. Need for rare cases in UI handling though (see e.g. `image_id_remap` in
+   * `space_image.c`).
    */
   ID_REMAP_APPLY_UPDATE_REFCOUNT = (1 << 0),
 
   /**
    * Make sure that the new ID datablock will have a 'real' user.
+   *
+   * NOTE: See Note for #ID_REMAP_APPLY_UPDATE_REFCOUNT above.
    */
   ID_REMAP_APPLY_ENSURE_REAL = (1 << 1),
 

@@ -43,7 +43,7 @@ set(SRC
   object_gpencil_modifier.c
   object_hook.c
   object_modes.c
-  object_modifier.c
+  object_modifier.cc
   object_ops.c
   object_random.c
   object_relations.c
@@ -51,7 +51,7 @@ set(SRC
   object_select.c
   object_shader_fx.c
   object_shapekey.c
-  object_transform.c
+  object_transform.cc
   object_utils.c
   object_vgroup.c
   object_volume.c

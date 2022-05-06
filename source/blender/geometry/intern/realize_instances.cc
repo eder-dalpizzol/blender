@@ -18,7 +18,6 @@
 #include "BKE_material.h"
 #include "BKE_mesh.h"
 #include "BKE_pointcloud.h"
-#include "BKE_spline.hh"
 #include "BKE_type_conversions.hh"
 
 namespace blender::geometry {
@@ -30,12 +29,6 @@ using blender::bke::object_get_evaluated_geometry_set;
 using blender::bke::OutputAttribute;
 using blender::bke::OutputAttribute_Typed;
 using blender::bke::ReadAttributeLookup;
-using blender::fn::CPPType;
-using blender::fn::GArray;
-using blender::fn::GMutableSpan;
-using blender::fn::GSpan;
-using blender::fn::GVArray;
-using blender::fn::GVArray_GSpan;
 
 /**
  * An ordered set of attribute ids. Attributes are ordered to avoid name lookups in many places.
@@ -274,7 +267,7 @@ static void threaded_copy(const GSpan src, GMutableSpan dst)
   });
 }
 
-static void threaded_fill(const fn::GPointer value, GMutableSpan dst)
+static void threaded_fill(const GPointer value, GMutableSpan dst)
 {
   BLI_assert(*value.type() == dst.type());
   threading::parallel_for(IndexRange(dst.size()), 1024, [&](const IndexRange range) {
@@ -1022,8 +1015,6 @@ static void execute_realize_mesh_tasks(const RealizeInstancesOptions &options,
   if (vertex_ids) {
     vertex_ids.save();
   }
-
-  BKE_mesh_normals_tag_dirty(dst_mesh);
 }
 
 /** \} */
@@ -1146,11 +1137,11 @@ static void execute_realize_curve_task(const RealizeInstancesOptions &options,
   const Curves &curves_id = *curves_info.curves;
   const bke::CurvesGeometry &curves = bke::CurvesGeometry::wrap(curves_id.geometry);
 
-  const IndexRange dst_point_range{task.start_indices.point, curves.points_size()};
-  const IndexRange dst_curve_range{task.start_indices.curve, curves.curves_size()};
+  const IndexRange dst_point_range{task.start_indices.point, curves.points_num()};
+  const IndexRange dst_curve_range{task.start_indices.curve, curves.curves_num()};
 
   copy_transformed_positions(
-      curves.positions(), task.transform, dst_curves.positions().slice(dst_point_range));
+      curves.positions(), task.transform, dst_curves.positions_for_write().slice(dst_point_range));
 
   /* Copy and transform handle positions if necessary. */
   if (all_curves_info.create_handle_postion_attributes) {
@@ -1182,7 +1173,7 @@ static void execute_realize_curve_task(const RealizeInstancesOptions &options,
 
   /* Copy curve offsets. */
   const Span<int> src_offsets = curves.offsets();
-  const MutableSpan<int> dst_offsets = dst_curves.offsets().slice(dst_curve_range);
+  const MutableSpan<int> dst_offsets = dst_curves.offsets_for_write().slice(dst_curve_range);
   threading::parallel_for(curves.curves_range(), 2048, [&](const IndexRange range) {
     for (const int i : range) {
       dst_offsets[i] = task.start_indices.point + src_offsets[i];
@@ -1201,9 +1192,9 @@ static void execute_realize_curve_task(const RealizeInstancesOptions &options,
       [&](const AttributeDomain domain) {
         switch (domain) {
           case ATTR_DOMAIN_POINT:
-            return IndexRange(task.start_indices.point, curves.points_size());
+            return IndexRange(task.start_indices.point, curves.points_num());
           case ATTR_DOMAIN_CURVE:
-            return IndexRange(task.start_indices.curve, curves.curves_size());
+            return IndexRange(task.start_indices.curve, curves.curves_num());
           default:
             BLI_assert_unreachable();
             return IndexRange();
@@ -1230,7 +1221,7 @@ static void execute_realize_curve_tasks(const RealizeInstancesOptions &options,
   /* Allocate new curves data-block. */
   Curves *dst_curves_id = bke::curves_new_nomain(points_size, curves_size);
   bke::CurvesGeometry &dst_curves = bke::CurvesGeometry::wrap(dst_curves_id->geometry);
-  dst_curves.offsets().last() = points_size;
+  dst_curves.offsets_for_write().last() = points_size;
   CurveComponent &dst_component = r_realized_geometry.get_component_for_write<CurveComponent>();
   dst_component.replace(dst_curves_id);
 
@@ -1383,14 +1374,6 @@ GeometrySet realize_instances(GeometrySet geometry_set, const RealizeInstancesOp
   }
 
   return new_geometry_set;
-}
-
-GeometrySet realize_instances_legacy(GeometrySet geometry_set)
-{
-  RealizeInstancesOptions options;
-  options.keep_original_ids = true;
-  options.realize_instance_attributes = false;
-  return realize_instances(std::move(geometry_set), options);
 }
 
 /** \} */

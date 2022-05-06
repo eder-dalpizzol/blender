@@ -464,12 +464,12 @@ static void mask_draw_curve_type(const bContext *C,
       break;
 
     case MASK_DT_DASH: {
-      float colors[8];
+      float colors[2][4];
 
       mask_color_active_tint(rgb_tmp, rgb_spline, is_active);
-      rgba_uchar_to_float(colors, rgb_tmp);
+      rgba_uchar_to_float(colors[0], rgb_tmp);
       mask_color_active_tint(rgb_tmp, rgb_black, is_active);
-      rgba_uchar_to_float(colors + 4, rgb_tmp);
+      rgba_uchar_to_float(colors[1], rgb_tmp);
 
       immBindBuiltinProgram(GPU_SHADER_2D_LINE_DASHED_UNIFORM_COLOR);
 
@@ -478,7 +478,8 @@ static void mask_draw_curve_type(const bContext *C,
       immUniform2f("viewport_size", viewport_size[2] / UI_DPI_FAC, viewport_size[3] / UI_DPI_FAC);
 
       immUniform1i("colors_len", 2); /* "advanced" mode */
-      immUniformArray4fv("colors", colors, 2);
+      immUniform4fv("color", colors[0]);
+      immUniform4fv("color2", colors[1]);
       immUniform1f("dash_width", 4.0f);
       immUniform1f("dash_factor", 0.5f);
       GPU_line_width(1.0f);
@@ -636,21 +637,6 @@ static void draw_mask_layers(const bContext *C,
 
   GPU_program_point_size(false);
   GPU_blend(GPU_BLEND_NONE);
-}
-
-void ED_mask_draw(const bContext *C, const char draw_flag, const char draw_type)
-{
-  ScrArea *area = CTX_wm_area(C);
-  Mask *mask = CTX_data_edit_mask(C);
-  int width, height;
-
-  if (!mask) {
-    return;
-  }
-
-  ED_mask_get_size(area, &width, &height);
-
-  draw_mask_layers(C, mask, draw_flag, draw_type, width, height);
 }
 
 static float *mask_rasterize(Mask *mask, const int width, const int height)

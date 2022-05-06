@@ -1212,6 +1212,11 @@ void wm_xr_session_actions_update(wmWindowManager *wm)
         xr->runtime->area = ED_area_offscreen_create(win, SPACE_VIEW3D);
       }
 
+      /* Set XR area object type flags for operators. */
+      View3D *v3d = xr->runtime->area->spacedata.first;
+      v3d->object_type_exclude_viewport = settings->object_type_exclude_viewport;
+      v3d->object_type_exclude_select = settings->object_type_exclude_select;
+
       wm_xr_session_events_dispatch(xr, xr_context, active_action_set, state, win);
     }
   }
@@ -1304,7 +1309,7 @@ static void wm_xr_session_surface_draw(bContext *C)
 
   GHOST_XrSessionDrawViews(wm->xr.runtime->context, &draw_data);
 
-  /* There's no active framebuffer if the session was cancelled (exception while drawing views). */
+  /* There's no active frame-buffer if the session was canceled (exception while drawing views). */
   if (GPU_framebuffer_active_get()) {
     GPU_framebuffer_restore();
   }

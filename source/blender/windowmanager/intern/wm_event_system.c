@@ -194,6 +194,10 @@ void wm_event_free(wmEvent *event)
     printf("%s: 'is_repeat=true' for non-keyboard event, this should not happen.\n", __func__);
     WM_event_print(event);
   }
+  if (ELEM(event->type, MOUSEMOVE, INBETWEEN_MOUSEMOVE) && (event->val != KM_NOTHING)) {
+    printf("%s: 'val != NOTHING' for a cursor motion event, this should not happen.\n", __func__);
+    WM_event_print(event);
+  }
 #endif
 
   wm_event_custom_free(event);
@@ -1059,7 +1063,7 @@ static void wm_operator_finished(bContext *C, wmOperator *op, const bool repeat,
   if (hud_status != NOP) {
     if (hud_status == SET) {
       ScrArea *area = CTX_wm_area(C);
-      if (area) {
+      if (area && ((area->flag & AREA_FLAG_OFFSCREEN) == 0)) {
         ED_area_type_hud_ensure(C, area);
       }
     }
@@ -1291,6 +1295,29 @@ static wmOperator *wm_operator_create(wmWindowManager *wm,
   WM_operator_properties_sanitize(op->ptr, 0);
 
   return op;
+}
+
+/**
+ * This isn't very nice but needed to redraw gizmos which are hidden while tweaking,
+ * See #WM_GIZMOGROUPTYPE_DELAY_REFRESH_FOR_TWEAK for details.
+ */
+static void wm_region_tag_draw_on_gizmo_delay_refresh_for_tweak(wmWindow *win)
+{
+
+  bScreen *screen = WM_window_get_active_screen(win);
+  /* Unlikely but not impossible as this runs after events have been handled. */
+  if (UNLIKELY(screen == NULL)) {
+    return;
+  }
+  ED_screen_areas_iter (win, screen, area) {
+    LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
+      if (region->gizmo_map != NULL) {
+        if (WM_gizmomap_tag_delay_refresh_for_tweak_check(region->gizmo_map)) {
+          ED_region_tag_redraw(region);
+        }
+      }
+    }
+  }
 }
 
 static void wm_region_mouse_co(bContext *C, wmEvent *event)
@@ -2670,6 +2697,51 @@ static int wm_action_not_handled(int action)
   return action == WM_HANDLER_CONTINUE || action == (WM_HANDLER_BREAK | WM_HANDLER_MODAL);
 }
 
+static const char *keymap_handler_log_action_str(const int action)
+{
+  if (action & WM_HANDLER_BREAK) {
+    return "handled";
+  }
+  if (action & WM_HANDLER_HANDLED) {
+    return "handled (and pass on)";
+  }
+  return "un-handled";
+}
+
+static const char *keymap_handler_log_kmi_event_str(const wmKeyMapItem *kmi,
+                                                    char *buf,
+                                                    size_t buf_maxlen)
+{
+  /* Short representation of the key that was pressed,
+   * include this since it may differ from the event in minor details
+   * which can help looking up the key-map definition. */
+  WM_keymap_item_to_string(kmi, false, buf, buf_maxlen);
+  return buf;
+}
+
+static const char *keymap_handler_log_kmi_op_str(bContext *C,
+                                                 const wmKeyMapItem *kmi,
+                                                 char *buf,
+                                                 size_t buf_maxlen)
+{
+  /* The key-map item properties can further help distinguish this item from others. */
+  char *kmi_props = NULL;
+  if (kmi->properties != NULL) {
+    wmOperatorType *ot = WM_operatortype_find(kmi->idname, 0);
+    if (ot) {
+      kmi_props = RNA_pointer_as_string_keywords(C, kmi->ptr, false, false, true, 512);
+    }
+    else { /* Fallback. */
+      kmi_props = IDP_reprN(kmi->properties, NULL);
+    }
+  }
+  BLI_snprintf(buf, buf_maxlen, "%s(%s)", kmi->idname, kmi_props ? kmi_props : "");
+  if (kmi_props != NULL) {
+    MEM_freeN(kmi_props);
+  }
+  return buf;
+}
+
 #define PRINT \
   if (do_debug_handler) \
   printf
@@ -2701,51 +2773,25 @@ static int wm_handlers_do_keymap_with_keymap_handler(
         if (wm_eventmatch(event, kmi)) {
           struct wmEventHandler_KeymapPost keymap_post = handler->post;
 
-          if (do_debug_handler) {
-            /* Short representation of the key that was pressed,
-             * include this since it may differ from the event in minor details
-             * which can help looking up the key-map definition. */
-            char kmi_buf[256];
-            WM_keymap_item_to_string(kmi, false, kmi_buf, sizeof(kmi_buf));
-
-            /* The key-map item properties can further help distinguish this item from others. */
-            char *kmi_props = NULL;
-            if (kmi->properties != NULL) {
-              wmOperatorType *ot = WM_operatortype_find(kmi->idname, 0);
-              if (ot) {
-                kmi_props = RNA_pointer_as_string_keywords(C, kmi->ptr, false, false, true, 512);
-              }
-              else { /* Fallback. */
-                kmi_props = IDP_reprN(kmi->properties, NULL);
-              }
-            }
-
-            printf("%s:     item matched: \"%s\", %s(%s)\n",
-                   __func__,
-                   kmi_buf,
-                   kmi->idname,
-                   kmi_props ? kmi_props : "");
-            if (kmi_props != NULL) {
-              MEM_freeN(kmi_props);
-            }
-          }
-
           action |= wm_handler_operator_call(
               C, handlers, &handler->head, event, kmi->ptr, kmi->idname);
 
+          char op_buf[512];
+          char kmi_buf[128];
+          CLOG_INFO(WM_LOG_HANDLERS,
+                    2,
+                    "keymap '%s', %s, %s, event: %s",
+                    keymap->idname,
+                    keymap_handler_log_kmi_op_str(C, kmi, op_buf, sizeof(op_buf)),
+                    keymap_handler_log_action_str(action),
+                    keymap_handler_log_kmi_event_str(kmi, kmi_buf, sizeof(kmi_buf)));
+
           if (action & WM_HANDLER_BREAK) {
             /* Not always_pass here, it denotes removed handler_base. */
-            CLOG_INFO(WM_LOG_HANDLERS, 2, "handled! '%s'", kmi->idname);
             if (keymap_post.post_fn != NULL) {
               keymap_post.post_fn(keymap, kmi, keymap_post.user_data);
             }
             break;
-          }
-          if (action & WM_HANDLER_HANDLED) {
-            CLOG_INFO(WM_LOG_HANDLERS, 2, "handled - and pass on! '%s'", kmi->idname);
-          }
-          else {
-            CLOG_INFO(WM_LOG_HANDLERS, 2, "un-handled '%s'", kmi->idname);
           }
         }
       }
@@ -3228,7 +3274,7 @@ static int wm_handlers_do(bContext *C, wmEvent *event, ListBase *handlers)
           event->keymodifier = event->prev_press_keymodifier;
           event->direction = direction;
 
-          CLOG_INFO(WM_LOG_HANDLERS, 1, "handling PRESS_DRAG");
+          CLOG_INFO(WM_LOG_HANDLERS, 1, "handling CLICK_DRAG");
 
           action |= wm_handlers_do_intern(C, win, event, handlers);
 
@@ -3241,13 +3287,17 @@ static int wm_handlers_do(bContext *C, wmEvent *event, ListBase *handlers)
           win->event_queue_check_click = false;
           if (!((action & WM_HANDLER_BREAK) == 0 || wm_action_not_handled(action))) {
             /* Only disable when handled as other handlers may use this drag event. */
+            CLOG_INFO(WM_LOG_HANDLERS, 3, "canceling CLICK_DRAG: drag was generated & handled");
             win->event_queue_check_drag = false;
           }
         }
       }
     }
     else {
-      win->event_queue_check_drag = false;
+      if (win->event_queue_check_drag) {
+        CLOG_INFO(WM_LOG_HANDLERS, 3, "canceling CLICK_DRAG: motion event was handled");
+        win->event_queue_check_drag = false;
+      }
     }
   }
   else if (ISKEYBOARD_OR_BUTTON(event->type)) {
@@ -3261,7 +3311,10 @@ static int wm_handlers_do(bContext *C, wmEvent *event, ListBase *handlers)
       if (event->val == KM_PRESS) {
         if ((event->flag & WM_EVENT_IS_REPEAT) == 0) {
           win->event_queue_check_click = true;
+
+          CLOG_INFO(WM_LOG_HANDLERS, 3, "detecting CLICK_DRAG: press event detected");
           win->event_queue_check_drag = true;
+
           win->event_queue_check_drag_handled = false;
         }
       }
@@ -3272,6 +3325,8 @@ static int wm_handlers_do(bContext *C, wmEvent *event, ListBase *handlers)
             /* Support releasing modifier keys without canceling the drag event, see T89989. */
           }
           else {
+            CLOG_INFO(
+                WM_LOG_HANDLERS, 3, "CLICK_DRAG: canceling (release event didn't match press)");
             win->event_queue_check_drag = false;
           }
         }
@@ -3284,7 +3339,12 @@ static int wm_handlers_do(bContext *C, wmEvent *event, ListBase *handlers)
             if (win->event_queue_check_click == true) {
               if (WM_event_drag_test(event, event->prev_press_xy)) {
                 win->event_queue_check_click = false;
-                win->event_queue_check_drag = false;
+                if (win->event_queue_check_drag) {
+                  CLOG_INFO(WM_LOG_HANDLERS,
+                            3,
+                            "CLICK_DRAG: canceling (key-release exceeds drag threshold)");
+                  win->event_queue_check_drag = false;
+                }
               }
               else {
                 /* Position is where the actual click happens, for more
@@ -3294,7 +3354,7 @@ static int wm_handlers_do(bContext *C, wmEvent *event, ListBase *handlers)
                 copy_v2_v2_int(event->xy, event->prev_press_xy);
                 event->val = KM_CLICK;
 
-                CLOG_INFO(WM_LOG_HANDLERS, 1, "handling CLICK");
+                CLOG_INFO(WM_LOG_HANDLERS, 1, "CLICK: handling");
 
                 action |= wm_handlers_do_intern(C, win, event, handlers);
 
@@ -3318,7 +3378,14 @@ static int wm_handlers_do(bContext *C, wmEvent *event, ListBase *handlers)
     }
     else {
       win->event_queue_check_click = false;
-      win->event_queue_check_drag = false;
+
+      if (win->event_queue_check_drag) {
+        CLOG_INFO(WM_LOG_HANDLERS,
+                  3,
+                  "CLICK_DRAG: canceling (button event was handled: value=%d)",
+                  event->val);
+        win->event_queue_check_drag = false;
+      }
     }
   }
   else if (ISMOUSE_WHEEL(event->type) || ISMOUSE_GESTURE(event->type)) {
@@ -3707,6 +3774,7 @@ void wm_event_do_handlers(bContext *C)
           event->flag |= WM_EVENT_FORCE_DRAG_THRESHOLD;
         }
       }
+      const bool event_queue_check_drag_prev = win->event_queue_check_drag;
 
       /* Active screen might change during handlers, update pointer. */
       screen = WM_window_get_active_screen(win);
@@ -3866,6 +3934,10 @@ void wm_event_do_handlers(bContext *C)
         win->event_queue_check_drag_handled = false;
       }
 
+      if (event_queue_check_drag_prev && (win->event_queue_check_drag == false)) {
+        wm_region_tag_draw_on_gizmo_delay_refresh_for_tweak(win);
+      }
+
       /* Update previous mouse position for following events to use. */
       copy_v2_v2_int(win->eventstate->prev_xy, event->xy);
 
@@ -3879,6 +3951,7 @@ void wm_event_do_handlers(bContext *C)
       wmEvent tevent = *(win->eventstate);
       // printf("adding MOUSEMOVE %d %d\n", tevent.xy[0], tevent.xy[1]);
       tevent.type = MOUSEMOVE;
+      tevent.val = KM_NOTHING;
       tevent.prev_xy[0] = tevent.xy[0];
       tevent.prev_xy[1] = tevent.xy[1];
       tevent.flag = 0;
@@ -4423,6 +4496,9 @@ void WM_event_add_mousemove(wmWindow *win)
 /** \name Ghost Event Conversion
  * \{ */
 
+/**
+ * \return The WM enum for key or #EVENT_NONE (which should be ignored).
+ */
 static int convert_key(GHOST_TKey key)
 {
   if (key >= GHOST_kKeyA && key <= GHOST_kKeyZ) {
@@ -4446,7 +4522,7 @@ static int convert_key(GHOST_TKey key)
     case GHOST_kKeyLinefeed:
       return EVT_LINEFEEDKEY;
     case GHOST_kKeyClear:
-      return 0;
+      return EVENT_NONE;
     case GHOST_kKeyEnter:
       return EVT_RETKEY;
 
@@ -4501,9 +4577,9 @@ static int convert_key(GHOST_TKey key)
     case GHOST_kKeyCapsLock:
       return EVT_CAPSLOCKKEY;
     case GHOST_kKeyNumLock:
-      return 0;
+      return EVENT_NONE;
     case GHOST_kKeyScrollLock:
-      return 0;
+      return EVENT_NONE;
 
     case GHOST_kKeyLeftArrow:
       return EVT_LEFTARROWKEY;
@@ -4515,7 +4591,7 @@ static int convert_key(GHOST_TKey key)
       return EVT_DOWNARROWKEY;
 
     case GHOST_kKeyPrintScreen:
-      return 0;
+      return EVENT_NONE;
     case GHOST_kKeyPause:
       return EVT_PAUSEKEY;
 
@@ -4557,9 +4633,28 @@ static int convert_key(GHOST_TKey key)
     case GHOST_kKeyMediaLast:
       return EVT_MEDIALAST;
 
-    default:
-      return EVT_UNKNOWNKEY; /* #GHOST_kKeyUnknown (this could be asserted). */
+    case GHOST_kKeyUnknown:
+      return EVT_UNKNOWNKEY;
+
+#if defined(__GNUC__) || defined(__clang__)
+      /* Ensure all members of this enum are handled, otherwise generate a compiler warning.
+       * Note that these members have been handled, these ranges are to satisfy the compiler. */
+    case GHOST_kKeyF1 ... GHOST_kKeyF24:
+    case GHOST_kKeyA ... GHOST_kKeyZ:
+    case GHOST_kKeyNumpad0 ... GHOST_kKeyNumpad9:
+    case GHOST_kKey0 ... GHOST_kKey9: {
+      BLI_assert_unreachable();
+      break;
+    }
+#else
+    default: {
+      break;
+    }
+#endif
   }
+
+  CLOG_WARN(WM_LOG_EVENTS, "unknown event type %d from ghost", (int)key);
+  return EVENT_NONE;
 }
 
 static void wm_eventemulation(wmEvent *event, bool test_only)
@@ -4822,6 +4917,7 @@ static wmEvent *wm_event_add_mousemove_to_head(wmWindow *win)
   }
 
   tevent.type = MOUSEMOVE;
+  tevent.val = KM_NOTHING;
   copy_v2_v2_int(tevent.prev_xy, tevent.xy);
 
   wmEvent *event_new = wm_event_add(win, &tevent);
@@ -4882,7 +4978,7 @@ static void wm_event_state_update_and_click_set(const GHOST_TEventType type,
 
   /* Double click test. */
   if (wm_event_is_double_click(event)) {
-    CLOG_INFO(WM_LOG_HANDLERS, 1, "Send double click");
+    CLOG_INFO(WM_LOG_HANDLERS, 1, "DBL_CLICK: detected");
     event->val = KM_DBL_CLICK;
   }
   else if (event->val == KM_PRESS) {
@@ -4956,6 +5052,7 @@ void wm_event_add_ghostevent(wmWindowManager *wm, wmWindow *win, int type, void 
       wm_tablet_data_from_ghost(&cd->tablet, &event.tablet);
 
       event.type = MOUSEMOVE;
+      event.val = KM_NOTHING;
       {
         wmEvent *event_new = wm_event_add_mousemove(win, &event);
         copy_v2_v2_int(event_state->xy, event_new->xy);
@@ -4974,6 +5071,7 @@ void wm_event_add_ghostevent(wmWindowManager *wm, wmWindow *win, int type, void 
 
         copy_v2_v2_int(event_other.xy, event.xy);
         event_other.type = MOUSEMOVE;
+        event_other.val = KM_NOTHING;
         {
           wmEvent *event_new = wm_event_add_mousemove(win_other, &event_other);
           copy_v2_v2_int(win_other->eventstate->xy, event_new->xy);
@@ -5079,6 +5177,10 @@ void wm_event_add_ghostevent(wmWindowManager *wm, wmWindow *win, int type, void 
     case GHOST_kEventKeyUp: {
       GHOST_TEventKeyData *kd = customdata;
       event.type = convert_key(kd->key);
+      if (UNLIKELY(event.type == EVENT_NONE)) {
+        break;
+      }
+
       event.ascii = kd->ascii;
       /* Might be not NULL terminated. */
       memcpy(event.utf8_buf, kd->utf8_buf, sizeof(event.utf8_buf));

@@ -16,6 +16,7 @@
 #include "BLI_math.h"
 #include "BLI_math_color_blend.h"
 #include "BLI_task.h"
+#include "BLI_task.hh"
 #include "BLI_threads.h"
 #include "BLI_utildefines.h"
 #include "DNA_camera_types.h"
@@ -34,6 +35,8 @@
 #include "BKE_fcurve.h"
 #include "BKE_global.h"
 #include "BKE_image.h"
+#include "BKE_image_format.h"
+#include "BKE_image_save.h"
 #include "BKE_lib_query.h"
 #include "BKE_main.h"
 #include "BKE_report.h"
@@ -312,13 +315,13 @@ static void screen_opengl_render_doit(const bContext *C, OGLRender *oglrender, R
         imb_freerectfloatImBuf(out);
       }
       BLI_assert((oglrender->sizex == ibuf->x) && (oglrender->sizey == ibuf->y));
-      RE_render_result_rect_from_ibuf(rr, &scene->r, out, oglrender->view_id);
+      RE_render_result_rect_from_ibuf(rr, out, oglrender->view_id);
       IMB_freeImBuf(out);
     }
     else if (gpd) {
       /* If there are no strips, Grease Pencil still needs a buffer to draw on */
       ImBuf *out = IMB_allocImBuf(oglrender->sizex, oglrender->sizey, 32, IB_rect);
-      RE_render_result_rect_from_ibuf(rr, &scene->r, out, oglrender->view_id);
+      RE_render_result_rect_from_ibuf(rr, out, oglrender->view_id);
       IMB_freeImBuf(out);
     }
 
@@ -414,7 +417,7 @@ static void screen_opengl_render_doit(const bContext *C, OGLRender *oglrender, R
     if ((scene->r.stamp & R_STAMP_ALL) && (scene->r.stamp & R_STAMP_DRAW)) {
       BKE_image_stamp_buf(scene, camera, nullptr, rect, rectf, rr->rectx, rr->recty, 4);
     }
-    RE_render_result_rect_from_ibuf(rr, &scene->r, ibuf_result, oglrender->view_id);
+    RE_render_result_rect_from_ibuf(rr, ibuf_result, oglrender->view_id);
     IMB_freeImBuf(ibuf_result);
   }
 }
@@ -439,7 +442,7 @@ static void screen_opengl_render_write(OGLRender *oglrender)
 
   /* write images as individual images or stereo */
   BKE_render_result_stamp_info(scene, scene->camera, rr, false);
-  ok = RE_WriteRenderViewsImage(oglrender->reports, rr, scene, false, name);
+  ok = BKE_image_render_write(oglrender->reports, rr, scene, false, name);
 
   RE_ReleaseResultImage(oglrender->re);
 
@@ -850,10 +853,10 @@ static bool screen_opengl_render_init(bContext *C, wmOperator *op)
     }
 
     if (BKE_imtype_is_movie(scene->r.im_format.imtype)) {
-      oglrender->task_pool = BLI_task_pool_create_background_serial(oglrender, TASK_PRIORITY_LOW);
+      oglrender->task_pool = BLI_task_pool_create_background_serial(oglrender, TASK_PRIORITY_HIGH);
     }
     else {
-      oglrender->task_pool = BLI_task_pool_create(oglrender, TASK_PRIORITY_LOW);
+      oglrender->task_pool = BLI_task_pool_create(oglrender, TASK_PRIORITY_HIGH);
     }
     oglrender->pool_ok = true;
     BLI_spin_init(&oglrender->reports_lock);
@@ -1016,10 +1019,9 @@ struct WriteTaskData {
   Scene tmp_scene;
 };
 
-static void write_result_func(TaskPool *__restrict pool, void *task_data_v)
+static void write_result(TaskPool *__restrict pool, WriteTaskData *task_data)
 {
   OGLRender *oglrender = (OGLRender *)BLI_task_pool_user_data(pool);
-  WriteTaskData *task_data = (WriteTaskData *)task_data_v;
   Scene *scene = &task_data->tmp_scene;
   RenderResult *rr = task_data->rr;
   const bool is_movie = BKE_imtype_is_movie(scene->r.im_format.imtype);
@@ -1070,7 +1072,7 @@ static void write_result_func(TaskPool *__restrict pool, void *task_data_v)
                                  nullptr);
 
     BKE_render_result_stamp_info(scene, scene->camera, rr, false);
-    ok = RE_WriteRenderViewsImage(nullptr, rr, scene, true, name);
+    ok = BKE_image_render_write(nullptr, rr, scene, true, name);
     if (!ok) {
       BKE_reportf(&reports, RPT_ERROR, "Write error: cannot save %s", name);
     }
@@ -1091,6 +1093,15 @@ static void write_result_func(TaskPool *__restrict pool, void *task_data_v)
   oglrender->num_scheduled_frames--;
   BLI_condition_notify_all(&oglrender->task_condition);
   BLI_mutex_unlock(&oglrender->task_mutex);
+}
+
+static void write_result_func(TaskPool *__restrict pool, void *task_data_v)
+{
+  /* Isolate task so that multithreaded image operations don't cause this thread to start
+   * writing another frame. If that happens we may reach the MAX_SCHEDULED_FRAMES limit,
+   * and cause the render thread and writing threads to deadlock waiting for each other. */
+  WriteTaskData *task_data = (WriteTaskData *)task_data_v;
+  blender::threading::isolate_task([&] { write_result(pool, task_data); });
 }
 
 static bool schedule_write_result(OGLRender *oglrender, RenderResult *rr)

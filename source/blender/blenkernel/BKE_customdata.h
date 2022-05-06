@@ -236,11 +236,6 @@ bool CustomData_free_layer_active(struct CustomData *data, int type, int totelem
 void CustomData_free_layers(struct CustomData *data, int type, int totelem);
 
 /**
- * Free all anonymous attributes.
- */
-void CustomData_free_layers_anonymous(struct CustomData *data, int totelem);
-
-/**
  * Returns true if a layer with the specified type exists.
  */
 bool CustomData_has_layer(const struct CustomData *data, int type);
@@ -589,7 +584,7 @@ void CustomData_layers__print(struct CustomData *data);
 /* External file storage */
 
 void CustomData_external_add(
-    struct CustomData *data, struct ID *id, int type, int totelem, const char *filename);
+    struct CustomData *data, struct ID *id, int type, int totelem, const char *filepath);
 void CustomData_external_remove(struct CustomData *data, struct ID *id, int type, int totelem);
 bool CustomData_external_test(struct CustomData *data, int type);
 
@@ -750,4 +745,13 @@ void CustomData_debug_info_from_layers(const struct CustomData *data,
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+#  include "BLI_cpp_type.hh"
+
+namespace blender::bke {
+const CPPType *custom_data_type_to_cpp_type(const CustomDataType type);
+CustomDataType cpp_type_to_custom_data_type(const CPPType &type);
+}  // namespace blender::bke
 #endif
