@@ -165,7 +165,7 @@ static void IMAGE_draw_scene(void *vedata)
 
 static void IMAGE_engine_free()
 {
-    IMAGE_buffer_cache_free();
+  IMAGE_buffer_cache_free();
   IMAGE_shader_free();
 }
 
