@@ -367,10 +367,12 @@ void GHOST_Wintab::getInput(std::vector<GHOST_WintabInfoWin32> &outWintabInfo)
     /* Some Wintab libraries don't handle relative button input, so we track button presses
      * manually. */
     DWORD buttonsChanged = m_buttons ^ pkt.pkButtons;
-    WORD buttonIndex = 0;
+    m_buttons = pkt.pkButtons;
 
-    while (buttonsChanged) {
-      if (buttonsChanged & 1) {
+    for (WORD buttonIndex = 0; buttonsChanged; buttonIndex++) {
+      DWORD buttonFlag = 1 << buttonIndex;
+
+      if (buttonsChanged & buttonFlag) {
         /* Find the index for the changed button from the button map. */
         GHOST_TButtonMask button = mapWintabToGhostButton(pkt.pkCursor, buttonIndex);
 
@@ -381,15 +383,12 @@ void GHOST_Wintab::getInput(std::vector<GHOST_WintabInfoWin32> &outWintabInfo)
           }
 
           out.button = button;
-          out.type = buttonsChanged & pkt.pkButtons ? GHOST_kEventButtonDown :
-                                                      GHOST_kEventButtonUp;
+          out.type = pkt.pkButtons & buttonFlag ? GHOST_kEventButtonDown : GHOST_kEventButtonUp;
         }
 
-        m_buttons ^= 1 << buttonIndex;
+        /* Remove checked button flag from the set of changed buttons. */
+        buttonsChanged &= ~buttonFlag;
       }
-
-      buttonsChanged >>= 1;
-      buttonIndex++;
     }
 
     outWintabInfo.push_back(out);
